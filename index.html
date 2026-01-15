@@ -2,18 +2,19 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <title>BusyBox Terminal v1.13.4</title>
+    <title>Advanced BusyBox Emulator v2.0</title>
     <style>
         body {
-            background-color: #0c0c0c;
-            color: #00ff00;
-            font-family: 'Consolas', 'Monaco', monospace;
+            background-color: #0a0a0a;
+            color: #00ff41; /* Verde Matrix */
+            font-family: 'Courier New', Courier, monospace;
             margin: 0;
             padding: 20px;
             display: flex;
             flex-direction: column;
             height: 100vh;
             box-sizing: border-box;
+            overflow: hidden;
         }
 
         #output {
@@ -21,7 +22,7 @@
             overflow-y: auto;
             white-space: pre-wrap;
             margin-bottom: 10px;
-            text-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
+            line-height: 1.4;
         }
 
         .input-line {
@@ -30,80 +31,173 @@
         }
 
         .prompt {
-            color: #00ff00;
+            color: #00ff41;
             margin-right: 10px;
             white-space: nowrap;
+            font-weight: bold;
         }
 
         #command-input {
             background: transparent;
             border: none;
-            color: #00ff00;
+            color: #00ff41;
             font-family: inherit;
             font-size: inherit;
             outline: none;
             width: 100%;
         }
 
-        .system-msg { color: #888; font-style: italic; }
-        .error-msg { color: #ff0000; }
-        .success-msg { color: #ffff00; }
+        .system-msg { color: #008f11; }
+        .error-msg { color: #ff3e3e; }
+        .success-msg { color: #50fa7b; text-shadow: 0 0 8px #50fa7b; }
+        .dir-link { color: #8be9fd; font-weight: bold; }
+        .file-link { color: #f1fa8c; }
 
-        /* Scrollbar stilizzata */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #0c0c0c; }
-        ::-webkit-scrollbar-thumb { background: #004400; border-radius: 4px; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0a0a0a; }
+        ::-webkit-scrollbar-thumb { background: #008f11; border-radius: 3px; }
     </style>
 </head>
 <body>
 
-<div id="output">BusyBox v1.13.4 (2026-01-14 23:23:27) built-in shell (ash)
-Enter 'help' for a list of built-in commands.
-
+<div id="output">BusyBox v1.36.1 (System-V Linux) built-in shell (ash)
+Multi-call binary. Type 'help' for available functions.
+Last login: <span id="last-login"></span> on tty1
 </div>
 
 <div class="input-line">
-    <span class="prompt">root@cyber-host:/#</span>
-    <input type="text" id="command-input" autofocus spellcheck="false">
+    <span class="prompt" id="prompt-label">root@cyber-host:/#</span>
+    <input type="text" id="command-input" autofocus spellcheck="false" autocomplete="off">
 </div>
 
 <script>
     const output = document.getElementById('output');
     const input = document.getElementById('command-input');
+    const promptLabel = document.getElementById('prompt-label');
+    document.getElementById('last-login').innerText = new Date().toUTCString();
 
-    // Comandi disponibili
-    const commands = {
-        'help': "Available commands: help, ls, clear, whoami, date, status, hack",
-        'ls': "bin/  etc/  home/  root/  usr/  var/  secret_data.txt",
-        'whoami': "root (privileged user)",
-        'date': () => new Date().toLocaleString(),
-        'status': "CPU: 12% | RAM: 450MB/16GB | Uplink: Active",
-        'clear': "CLEAR",
-        'hack': () => {
-            startFakeHack();
-            return "Initializing breach protocol...";
+    // --- LOGICA FILE SYSTEM VIRTUALE ---
+    let currentPath = "/";
+    const fileSystem = {
+        "/": {
+            "bin": { type: "dir" },
+            "etc": { type: "dir" },
+            "home": { 
+                type: "dir", 
+                content: {
+                    "user": {
+                        type: "dir",
+                        content: { "notes.txt": { type: "file", content: "Password banca: 1234 (Scherzo!)" } }
+                    }
+                }
+            },
+            "root": { type: "dir" },
+            "secret_data.txt": { type: "file", content: "PROGETTO TOP SECRET: Operazione 'SkyNet' v1.0. Status: Inizializzato." },
+            "version.log": { type: "file", content: "Kernel 5.10.0-kali-amd64\nCompiled at: 2026-01-10" }
         }
     };
 
+    function getDir(path) {
+        if (path === "/") return fileSystem["/"];
+        let parts = path.split('/').filter(p => p);
+        let current = fileSystem["/"];
+        for (let part of parts) {
+            if (current[part] && current[part].type === "dir") {
+                current = current[part].content || {};
+            } else {
+                return null;
+            }
+        }
+        return current;
+    }
+
+    // --- COMANDI ---
+    const commands = {
+        'help': () => "COMANDI DISPONIBILI:\nls      - Elenca file\ncd      - Cambia directory\npwd     - Mostra posizione\ncat     - Legge file\nclear   - Pulisce schermo\nwhoami  - Info utente\ndate    - Ora attuale\nstatus  - Info sistema\nhack    - Breach protocol\nneofetch - Info sistema stilizzate\nreboot  - Riavvia sistema",
+        
+        'pwd': () => currentPath,
+
+        'ls': () => {
+            const dir = getDir(currentPath);
+            return Object.keys(dir).map(name => {
+                return dir[name].type === "dir" ? `<span class="dir-link">${name}/</span>` : `<span class="file-link">${name}</span>`;
+            }).join("  ");
+        },
+
+        'cd': (args) => {
+            const target = args[0];
+            if (!target || target === "/") { currentPath = "/"; }
+            else if (target === "..") {
+                if (currentPath !== "/") {
+                    let parts = currentPath.split('/').filter(p => p);
+                    parts.pop();
+                    currentPath = "/" + parts.join('/');
+                }
+            } else {
+                const dir = getDir(currentPath);
+                if (dir[target] && dir[target].type === "dir") {
+                    currentPath = currentPath === "/" ? `/${target}` : `${currentPath}/${target}`;
+                } else {
+                    return `<span class="error-msg">cd: ${target}: No such directory</span>`;
+                }
+            }
+            promptLabel.innerText = `root@cyber-host:${currentPath}#`;
+            return "";
+        },
+
+        'cat': (args) => {
+            const fileName = args[0];
+            const dir = getDir(currentPath);
+            if (dir[fileName] && dir[fileName].type === "file") {
+                return dir[fileName].content;
+            }
+            return `<span class="error-msg">cat: ${fileName}: No such file</span>`;
+        },
+
+        'whoami': () => "root (Superuser Access Granted)",
+        
+        'status': () => `[CPU]  [||||      ] 42%\n[MEM]  [||||||||  ] 8.2GB / 16GB\n[NET]  Status: Encrypted Tunnel Active`,
+
+        'neofetch': () => `
+  <span style="color:white">       .---.       </span>  <span style="color:#00ff41">OS: CyberOS v2.0</span>
+  <span style="color:white">      /     \\      </span>  <span style="color:#00ff41">Kernel: BusyBox 1.36.1</span>
+  <span style="color:white">      |() ()|      </span>  <span style="color:#00ff41">Uptime: 13 mins</span>
+  <span style="color:white">      \\  ^  /      </span>  <span style="color:#00ff41">Shell: ash</span>
+  <span style="color:white">       |||||       </span>  <span style="color:#00ff41">Terminal: HTML5/JS Hybrid</span>
+        `,
+
+        'reboot': () => {
+            setTimeout(() => location.reload(), 2000);
+            return "System rebooting... closing sockets.";
+        },
+
+        'hack': () => {
+            startFakeHack();
+            return "Inizializzazione attacco forza bruta...";
+        }
+    };
+
+    // --- GESTORE INPUT ---
     input.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
-            const fullCommand = input.value.trim().toLowerCase();
-            const cmd = fullCommand.split(' ')[0];
+            const val = input.value.trim();
+            const parts = val.split(' ');
+            const cmd = parts[0].toLowerCase();
+            const args = parts.slice(1);
             
-            // Log del comando nel terminale
-            addLine(`<span class="prompt">root@cyber-host:/#</span> ${input.value}`);
+            addLine(`<span class="prompt">${promptLabel.innerText}</span> ${val}`);
 
             if (cmd === 'clear') {
                 output.innerHTML = "";
             } else if (commands[cmd]) {
-                const response = typeof commands[cmd] === 'function' ? commands[cmd]() : commands[cmd];
-                addLine(response);
+                const response = commands[cmd](args);
+                if (response) addLine(response);
             } else if (cmd !== "") {
                 addLine(`<span class="error-msg">sh: ${cmd}: command not found</span>`);
             }
 
             input.value = "";
-            window.scrollTo(0, document.body.scrollHeight);
+            output.scrollTop = output.scrollHeight;
         }
     });
 
@@ -116,19 +210,20 @@ Enter 'help' for a list of built-in commands.
 
     function startFakeHack() {
         let i = 0;
-        const lines = [
-            "Connecting to proxy...", "Bypassing firewall...", 
-            "Injecting SQL payload...", "Accessing database...", 
-            "DECRYPTING: [##########] 100%", "ACCESS GRANTED."
+        const steps = [
+            "Scansione porte aperta...", "Vulnerabilità trovata: CVE-2024-9999",
+            "Buffer overflow inviato...", "Ottenimento shell remota...",
+            "Privilege escalation: SUCCESS", "Dump database in corso...",
+            "FINALIZZATO: Tutti i dati criptati."
         ];
         const interval = setInterval(() => {
-            addLine(`<span class="success-msg">${lines[i]}</span>`);
+            addLine(`<span class="success-msg">[HACKER-MODE] ${steps[i]}</span>`);
             i++;
-            if (i >= lines.length) clearInterval(interval);
-        }, 600);
+            if (i >= steps.length) clearInterval(interval);
+        }, 800);
     }
 
-    // Mantieni il focus sull'input
+    // Focus automatico
     document.body.addEventListener('click', () => input.focus());
 </script>
 
